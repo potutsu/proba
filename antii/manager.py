@@ -70,6 +70,14 @@ running = True
 
 # ── Helpers ────────────────────────────────────────────────────────
 
+import re as _re
+_TS_PAT = _re.compile(r"\[20\d\d-\d\d-\d\d (\d\d:\d\d:\d\d) UTC\]")
+
+def _strip_ts(line: str) -> str:
+    """Shorten [2026-07-22 11:03:10 UTC] to [11:03:10] in log lines."""
+    return _TS_PAT.sub(r"[\1]", line)
+
+
 def now_ts() -> float:
     return time.time()
 
@@ -469,7 +477,7 @@ def draw(stdscr):
             sc = dict(_stats_cache)
 
         h, w   = stdscr.getmaxyx()
-        ts     = datetime.now().strftime("%m-%d %H:%M:%S")
+        ts     = datetime.now().strftime("%H:%M:%S")
         vname  = script_names[log_view_index % len(script_names)]
 
         # FOOTER_ROW = h-1, CONFIRM_ROW = h-2, both reserved
@@ -551,7 +559,7 @@ def draw(stdscr):
             for line in log_buf[-max_lines:]:
                 if row > CONTENT_MAX:
                     break
-                put(row, 0, (" " + line)[:w - 1], NORMAL)
+                put(row, 0, (" " + _strip_ts(line))[:w - 1], NORMAL)
                 row += 1
 
             # ── Kill confirm (h-2) ───────────────────────────────
@@ -572,6 +580,7 @@ def draw(stdscr):
         except curses.error:
             try:
                 stdscr.clear()
+                stdscr.refresh()
                 curses.flushinp()
             except Exception:
                 pass
@@ -602,6 +611,10 @@ def draw(stdscr):
                             time.sleep(STARTUP_DELAY_SEC)
             threading.Thread(target=_start_all, daemon=True).start()
             mlog("Ctrl+A — starting all pipeline workers")
+            try:
+                stdscr.clear()
+            except Exception:
+                pass
 
         elif key == 16:  # Ctrl+P
             def _pause_all():

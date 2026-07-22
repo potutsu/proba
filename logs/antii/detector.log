@@ -1,4 +1,0 @@
-Traceback (most recent call last):
-  File "C:\Users\potut\proba\antii\detector.py", line 42, in <module>
-    from antii.base_rate import estimate_base_rate, price_gap
-ModuleNotFoundError: No module named 'antii.base_rate'

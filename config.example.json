@@ -1,0 +1,72 @@
+{
+  "_meta": {
+    "version": "0.3.0",
+    "app": "proba",
+    "changelog": {
+      "0.1.0": "initial release",
+      "0.2.0": "automated pipeline, favourite-longshot bias scorer",
+      "0.3.0": "multi-source (Polymarket + Futuur), real fill price simulation, strategy_id for A/B phones"
+    },
+    "base_dir_note": "Leave as {base_dir} — auto-resolved to repo folder. To override use forward slashes: C:/Users/name/proba"
+  },
+
+  "base_dir": "{base_dir}",
+
+  "strategy_id": "default",
+
+  "discovery": {
+    "loop_interval_sec": 300,
+    "sources": ["polymarket", "futuur"],
+    "categories": ["sports"],
+    "currency_mode": "real_money",
+    "max_results": 100,
+    "max_days_to_close": 7,
+    "min_days_to_close": 0.5
+  },
+
+  "filter": {
+    "min_volume": 100,
+    "min_volume_usd": 1000,
+    "min_liquidity_usd": 500,
+    "skip_price_near_zero": 0.03,
+    "skip_price_near_one": 0.97,
+    "require_binary": true
+  },
+
+  "scorer": {
+    "min_edge": 0.04,
+    "confidence_high": 0.08,
+    "confidence_medium": 0.05
+  },
+
+  "auto_trader": {
+    "max_open_positions": 10,
+    "min_days_to_close": 0.5,
+    "max_days_to_close": 5.0,
+    "min_volume_usd": 1000
+  },
+
+  "monitor": {
+    "check_interval_sec": 600,
+    "alert_price_shift_pct": 0.10,
+    "alert_days_to_close": 1
+  },
+
+  "paper": {
+    "default_position_size_usd": 40,
+    "phase": 0,
+    "target_trades_phase0": 50
+  },
+
+  "telegram": {
+    "enabled": false,
+    "alert_on_new_opportunity": false,
+    "alert_on_price_shift": false,
+    "alert_on_resolution": true
+  },
+
+  "sync": {
+    "enabled": false,
+    "sharing_enabled": false
+  }
+}

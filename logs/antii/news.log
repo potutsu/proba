@@ -1,0 +1,2 @@
+[2026-07-22 10:43:51 UTC] [news] starting — adjacent=NO TOKEN finnhub=NO TOKEN
+[2026-07-22 10:43:51 UTC] [news] WARNING: no news tokens set — signals will pass through with empty news_headlines. Set ADJACENT_NEWS_TOKEN and/or FINNHUB_TOKEN in .env

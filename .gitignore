@@ -3,6 +3,12 @@ proba.log
 config.json
 
 proba.egg-info\
+antii\__pycache__\
+logs\
+
+*.log
+*.pyc
+*.offset
 
 testep.py
 testpolymarket.py

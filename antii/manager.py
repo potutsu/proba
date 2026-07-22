@@ -34,14 +34,16 @@ _HERE = Path(__file__).resolve().parent
 _ROOT = _HERE.parent if (_HERE.parent / 'antii').exists() else _HERE.parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
+if str(_HERE) not in sys.path:
+    sys.path.insert(0, str(_HERE))
 
-from antii.antii_config import (
+from antii_config import (
     SCRIPTS, STARTUP_DELAY_SEC, RESTART_COOLDOWN_SEC,
     MAX_RESTARTS, RESTART_RESET_SEC, ON_CRASH,
     REFRESH_SEC, LOG_LINES, LOG_VIEW_INIT,
     ALERT_BOT_TOKEN, ALERT_CHAT_ID, MODE,
 )
-from antii.paths import ensure_dirs, get_paper_positions_path, LOGS
+from paths import ensure_dirs, get_paper_positions_path, LOGS
 
 import requests
 
@@ -419,20 +421,14 @@ def draw(stdscr):
     kill_confirm    = False
     kill_confirm_ts = 0.0
 
-    def status_color(status):
-        if status == "RUNNING":                               return GREEN,  "●"
-        if status == "HALTED":                                return YELLOW, "⏸"
-        if status in ("CRASHED", "FAILED", "ERROR",
-                      "NOT FOUND"):                           return RED,    "✖"
-        if status in ("STOPPING", "STOPPED"):                 return YELLOW, "○"
-        return NORMAL, "?"
-
-    def safe_add(row, col, text, attr=None):
+    def put(row, col, text, attr=None):
+        """Safe curses write — never touches last 2 rows (reserved for footer)."""
         h, w = stdscr.getmaxyx()
-        # Hard clamp — never write to last 2 rows (footer + buffer)
-        if row < 0 or row >= h - 2 or col < 0:
+        if row < 0 or row >= h - 2 or col < 0 or col >= w:
             return
-        text = text[:max(0, w - col - 1)].replace("\x00", "")
+        text = str(text)[:max(0, w - col - 1)]
+        if not text:
+            return
         try:
             if attr is not None:
                 stdscr.addstr(row, col, text, attr)
@@ -441,42 +437,30 @@ def draw(stdscr):
         except curses.error:
             pass
 
-    def render_script_row(s, row):
-        name     = s["name"]
-        key_ch   = s["key"]
-        group    = s.get("group", GROUP_PIPELINE)
-        info     = {}
-        with state_lock:
-            info = dict(state.get(name, {}))
-        status   = info.get("status", "UNKNOWN")
-        start_ts = info.get("start_ts")
-        restarts = info.get("restarts", 0)
-        uptime   = format_uptime(start_ts) if start_ts else "—"
-        scol, sym = status_color(status)
-        is_active = (name == script_names[log_view_index % len(script_names)])
-        row_attr  = CYAN if is_active else NORMAL
-        h, w      = stdscr.getmaxyx()
+    def put_footer(row, text, attr=None):
+        """Write to footer rows (h-2 and h-1) — bypasses put() clamp."""
+        h, w = stdscr.getmaxyx()
+        if row < 0 or row >= h:
+            return
+        text = str(text)[:max(0, w - 1)]
+        try:
+            if attr is not None:
+                stdscr.addstr(row, 0, text, attr)
+            else:
+                stdscr.addstr(row, 0, text)
+        except curses.error:
+            pass
 
-        if row >= h - 3:
-            return row
+    def hline(row, char="─", attr=None):
+        h, w = stdscr.getmaxyx()
+        put(row, 0, char * (w - 1), attr)
 
-        portrait = w < 72
-
-        if portrait:
-            safe_add(row, 0,  f"[{key_ch}] {name:<12} ", row_attr)
-            safe_add(row, 17, f"{sym} {status[:7]:<7} ",  scol)
-            safe_add(row, 26, uptime[:8],                  NORMAL)
-        else:
-            safe_add(row, 1,  f"[{key_ch}]",              row_attr)
-            safe_add(row, 5,  name[:16],                   row_attr)
-            safe_add(row, 22, f"{sym} {status}"[:13],     scol)
-            safe_add(row, 36, uptime[:10],                 NORMAL)
-            if restarts > 0:
-                safe_add(row, 48, f"R:{restarts}", YELLOW)
-            if group == GROUP_BACKGROUND:
-                safe_add(row, max(52, w - 12), "⚙always-on", DIM)
-
-        return row + 1
+    def status_sym(status):
+        if status == "RUNNING":  return GREEN,  "●"
+        if status == "HALTED":   return YELLOW, "⏸"
+        if status in ("CRASHED", "FAILED", "ERROR", "NOT FOUND"):
+            return RED, "✖"
+        return YELLOW, "○"
 
     while running:
         with state_lock:
@@ -484,94 +468,104 @@ def draw(stdscr):
         with _stats_lock:
             sc = dict(_stats_cache)
 
-        h, w = stdscr.getmaxyx()
-        ts   = datetime.now().strftime("%m-%d %H:%M:%S")
-        view_name = script_names[log_view_index % len(script_names)]
+        h, w   = stdscr.getmaxyx()
+        ts     = datetime.now().strftime("%m-%d %H:%M:%S")
+        vname  = script_names[log_view_index % len(script_names)]
+
+        # FOOTER_ROW = h-1, CONFIRM_ROW = h-2, both reserved
+        # Content rows: 0 .. h-3 inclusive
+        CONTENT_MAX = h - 3
 
         try:
             stdscr.erase()
 
-            if h < 14 or w < 30:
-                safe_add(0, 0, "Terminal too small", YELLOW)
+            if h < 10 or w < 20:
+                put(0, 0, "Too small", YELLOW)
                 stdscr.refresh()
                 time.sleep(REFRESH_SEC)
                 continue
 
             row = 0
 
-            # ── Header ─────────────────────────────────────────
-            safe_add(row, 0, "═" * w, CYAN); row += 1
-            safe_add(
-                row, 0,
-                f" ANTII — Anti-Insanity OR  [{MODE.upper()}]  {ts} ".center(w)[:w],
-                CYAN,
-            ); row += 1
-            safe_add(row, 0, "═" * w, CYAN); row += 1
+            # ── Header (3 rows) ─────────────────────────────────
+            put(row, 0, "═" * (w - 1), CYAN); row += 1
+            title = f" ANTII [{MODE.upper()}] {ts}"
+            put(row, 0, title[:w - 1], CYAN); row += 1
+            put(row, 0, "═" * (w - 1), CYAN); row += 1
 
-            # ── Pipeline workers ───────────────────────────────
-            pipeline = [s for s in SCRIPTS if s.get("group") == GROUP_PIPELINE]
-            for s in pipeline:
-                row = render_script_row(s, row)
+            # ── Workers ─────────────────────────────────────────
+            for s in SCRIPTS:
+                if row > CONTENT_MAX:
+                    break
+                name   = s["name"]
+                key_ch = s["key"]
+                group  = s.get("group", GROUP_PIPELINE)
+                info   = snap.get(name, {})
+                status = info.get("status", "UNKNOWN")
+                uptime = format_uptime(info.get("start_ts")) if info.get("start_ts") else "—"
+                scol, sym = status_sym(status)
+                active = (name == vname)
+                label_attr = CYAN if active else NORMAL
 
-            # ── Background workers ─────────────────────────────
-            if row < h - 3:
-                safe_add(row, 0, "┄" * w, DIM); row += 1
-            background = [s for s in SCRIPTS if s.get("group") == GROUP_BACKGROUND]
-            for s in background:
-                row = render_script_row(s, row)
+                # separator before background group
+                if group == GROUP_BACKGROUND and s == [x for x in SCRIPTS if x.get("group") == GROUP_BACKGROUND][0]:
+                    if row <= CONTENT_MAX:
+                        put(row, 0, "┄" * (w - 1), DIM); row += 1
 
-            # ── Stats ──────────────────────────────────────────
-            if row < h - 4:
-                safe_add(row, 0, "─" * w, DIM); row += 1
-            if row < h - 3:
-                wr_str = f"{sc['win_rate']:.1f}%" if sc["resolved"] > 0 else "—"
-                line1  = (
-                    f" Signals:{sc['signals']}  "
-                    f"Traded:{sc['traded']}  "
-                    f"Open:{sc['open']}  "
-                    f"Resolved:{sc['resolved']}  "
-                    f"WinRate:{wr_str}  "
-                    f"Checkpoints:{sc['checkpoints']}"
-                )
-                safe_add(row, 0, line1[:w], CYAN); row += 1
+                if row > CONTENT_MAX:
+                    break
 
-            # ── Log panel ──────────────────────────────────────
-            if row < h - 3:
-                safe_add(row, 0, "─" * w, DIM); row += 1
-            if row < h - 3:
-                desc = ""
-                for s in SCRIPTS:
-                    if s["name"] == view_name:
-                        desc = s.get("desc", "")
-                        break
-                safe_add(row, 0, f" LOGS [{view_name}] — {desc}"[:w], CYAN); row += 1
+                # single compact row: [key] name ● STATUS uptime
+                tag  = "bg" if group == GROUP_BACKGROUND else "  "
+                line = f"[{key_ch}]{tag} {name:<10} {sym} {status:<9} {uptime}"
+                put(row, 0, line[:w - 1], label_attr)
+                # re-paint status symbol in its own colour
+                sym_col = line.find(sym)
+                if sym_col >= 0:
+                    put(row, sym_col, f"{sym} {status:<9}", scol)
+                row += 1
+
+            # ── Stats bar ───────────────────────────────────────
+            if row <= CONTENT_MAX:
+                put(row, 0, "─" * (w - 1), DIM); row += 1
+            if row <= CONTENT_MAX:
+                wr = f"{sc['win_rate']:.0f}%" if sc["resolved"] else "—"
+                bar = f" sig:{sc['signals']} trd:{sc['traded']} open:{sc['open']} res:{sc['resolved']} wr:{wr} cp:{sc['checkpoints']}"
+                put(row, 0, bar[:w - 1], CYAN); row += 1
+
+            # ── Log panel ───────────────────────────────────────
+            if row <= CONTENT_MAX:
+                put(row, 0, "─" * (w - 1), DIM); row += 1
+            if row <= CONTENT_MAX:
+                put(row, 0, f" LOG [{vname}]"[:w - 1], CYAN); row += 1
+
+            log_start = row
+            max_lines = max(0, CONTENT_MAX - log_start + 1)
 
             with state_lock:
-                log_buf = list(state.get(view_name, {}).get("log_buf", []))
+                log_buf = list(state.get(vname, {}).get("log_buf", []))
             if not log_buf:
                 with manager_log_lock:
                     log_buf = list(manager_log)[-LOG_LINES:]
 
-            max_log = h - row - 3
-            for line in log_buf[-max(1, max_log):]:
-                if row < h - 3:
-                    safe_add(row, 0, (" " + line)[:w - 1], NORMAL); row += 1
+            for line in log_buf[-max_lines:]:
+                if row > CONTENT_MAX:
+                    break
+                put(row, 0, (" " + line)[:w - 1], NORMAL)
+                row += 1
 
-            # ── Kill confirm overlay ───────────────────────────
+            # ── Kill confirm (h-2) ───────────────────────────────
             if kill_confirm:
                 elapsed = now_ts() - kill_confirm_ts
                 if elapsed > 5:
                     kill_confirm = False
                 else:
-                    msg = f" KILL ALL? Ctrl+K again to confirm ({int(5-elapsed)}s) "
-                    safe_add(h - 3, max(0, (w - len(msg)) // 2), msg[:w], RED)
+                    msg = f" Ctrl+K again to KILL ALL ({int(5 - elapsed)}s) "
+                    put_footer(h - 2, msg.center(w - 1)[:w - 1], RED)
 
-            # ── Footer ─────────────────────────────────────────
-            footer = "[#]view [r]restart [h]halt [C-A]start all [C-P]pause all [C-K]kill [q]quit"
-            try:
-                stdscr.addstr(h - 1, 0, footer.center(w)[:w - 1], CYAN)
-            except curses.error:
-                pass
+            # ── Footer (h-1) ─────────────────────────────────────
+            footer = "[#]view [r]restart [h]halt [^A]start [^P]pause [^K]kill [q]quit"
+            put_footer(h - 1, footer.center(w - 1)[:w - 1], CYAN)
 
             stdscr.refresh()
 
@@ -582,7 +576,7 @@ def draw(stdscr):
             except Exception:
                 pass
 
-        # ── Input ──────────────────────────────────────────────
+        # ── Input ────────────────────────────────────────────────
         try:
             key = stdscr.getch()
             curses.flushinp()
@@ -597,7 +591,7 @@ def draw(stdscr):
             running = False
             break
 
-        elif key == 1:   # Ctrl+A — start all pipeline
+        elif key == 1:   # Ctrl+A
             def _start_all():
                 for s in SCRIPTS:
                     if s.get("group") == GROUP_PIPELINE:
@@ -609,7 +603,7 @@ def draw(stdscr):
             threading.Thread(target=_start_all, daemon=True).start()
             mlog("Ctrl+A — starting all pipeline workers")
 
-        elif key == 16:  # Ctrl+P — pause all pipeline
+        elif key == 16:  # Ctrl+P
             def _pause_all():
                 for s in SCRIPTS:
                     if s.get("group") == GROUP_PIPELINE:
@@ -620,7 +614,7 @@ def draw(stdscr):
             threading.Thread(target=_pause_all, daemon=True).start()
             mlog("Ctrl+P — halting all pipeline workers")
 
-        elif key == 11:  # Ctrl+K — kill all confirm
+        elif key == 11:  # Ctrl+K
             if kill_confirm and (now_ts() - kill_confirm_ts) < 5:
                 running = False
                 break
@@ -629,18 +623,18 @@ def draw(stdscr):
                 kill_confirm_ts = now_ts()
 
         elif key == ord("r"):
-            name  = script_names[log_view_index % len(script_names)]
+            name  = vname
             group = next((s.get("group") for s in SCRIPTS if s["name"] == name), GROUP_PIPELINE)
             if group == GROUP_BACKGROUND:
-                mlog(f"[TUI] {name} is always-on — use Ctrl+K to stop")
+                mlog(f"{name} is always-on — use Ctrl+K to stop all")
             else:
                 threading.Thread(target=restart_script, args=(name,), daemon=True).start()
 
         elif key == ord("h"):
-            name  = script_names[log_view_index % len(script_names)]
+            name  = vname
             group = next((s.get("group") for s in SCRIPTS if s["name"] == name), GROUP_PIPELINE)
             if group == GROUP_BACKGROUND:
-                mlog(f"[TUI] {name} is always-on — cannot halt")
+                mlog(f"{name} is always-on — cannot halt")
             else:
                 with state_lock:
                     cur = state[name].get("status")
@@ -657,8 +651,6 @@ def draw(stdscr):
 
         time.sleep(REFRESH_SEC)
 
-
-# ── Entry point ────────────────────────────────────────────────────
 
 def main():
     global running

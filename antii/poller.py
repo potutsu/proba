@@ -18,12 +18,15 @@ from pathlib import Path
 
 # ── Path bootstrap ────────────────────────────────────────────────
 _HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(_HERE.parent.parent))
+# Support both standalone (~/proba/antii/) and nested (~/proba/proba/antii/) layouts
+_ROOT = _HERE.parent if (_HERE.parent / 'antii').exists() else _HERE.parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
-from proba.antii.paths import (
+from antii.paths import (
     ensure_dirs, append_log, log_error, LOGS
 )
-from proba.antii.antii_config import (
+from antii.antii_config import (
     MODE, FOCUS_CATEGORIES, BLOCKED_CATEGORIES,
     POLL_INTERVAL_SEC, POLL_LIMIT, POLL_SORT_BY,
 )

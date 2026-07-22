@@ -12,9 +12,12 @@ import json
 from pathlib import Path
 from datetime import datetime, timezone
 
-# ── Project root (two levels up from this file) ─────────────────────────────
-_HERE        = Path(__file__).resolve().parent          # proba/antii/
-_PROBA_ROOT  = _HERE.parent.parent                      # project root
+# ── Project root ────────────────────────────────────────────────────────────
+_HERE = Path(__file__).resolve().parent   # antii/ directory
+# Support both layouts:
+#   standalone: ~/proba/antii/paths.py  → root = ~/proba/
+#   nested:     ~/proba/proba/antii/paths.py → root = ~/proba/
+_PROBA_ROOT = _HERE.parent if (_HERE.parent / 'antii').exists() else _HERE.parent.parent
 
 # ── Log directory ────────────────────────────────────────────────────────────
 LOG_DIR     = _PROBA_ROOT / "logs" / "antii"

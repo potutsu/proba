@@ -110,13 +110,14 @@ ALERT_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID", "")
 # pipeline   = manual start from TUI
 # ─────────────────────────────────────────────────────────────────
 
-_W = str(_HERE)   # worker dir
+_W    = str(_HERE)
+_ROOT = _HERE.parent if (_HERE.parent / 'antii').exists() else _HERE.parent.parent
 
 SCRIPTS = [
     {
         "name":  "poller",
         "path":  os.path.join(_W, "poller.py"),
-        "log":   str(_HERE.parent.parent / "logs" / "antii" / "poller.log"),
+        "log":   str(_ROOT / "logs" / "antii" / "poller.log"),
         "key":   "1",
         "group": "pipeline",
         "desc":  "Gamma tick collector — writes price_tick.jsonl every 15 min",
@@ -124,7 +125,7 @@ SCRIPTS = [
     {
         "name":  "detector",
         "path":  os.path.join(_W, "detector.py"),
-        "log":   str(_HERE.parent.parent / "logs" / "antii" / "detector.log"),
+        "log":   str(_ROOT / "logs" / "antii" / "detector.log"),
         "key":   "2",
         "group": "pipeline",
         "desc":  "Price move detector — reads ticks, emits signals",
@@ -132,7 +133,7 @@ SCRIPTS = [
     {
         "name":  "news",
         "path":  os.path.join(_W, "news.py"),
-        "log":   str(_HERE.parent.parent / "logs" / "antii" / "news.log"),
+        "log":   str(_ROOT / "logs" / "antii" / "news.log"),
         "key":   "3",
         "group": "pipeline",
         "desc":  "News fetcher — Adjacent + Finnhub per signal",
@@ -140,7 +141,7 @@ SCRIPTS = [
     {
         "name":  "scorer",
         "path":  os.path.join(_W, "scorer.py"),
-        "log":   str(_HERE.parent.parent / "logs" / "antii" / "scorer.log"),
+        "log":   str(_ROOT / "logs" / "antii" / "scorer.log"),
         "key":   "4",
         "group": "pipeline",
         "desc":  "OR scorer — base rate + gap + confidence",
@@ -148,7 +149,7 @@ SCRIPTS = [
     {
         "name":  "trader",
         "path":  os.path.join(_W, "trader.py"),
-        "log":   str(_HERE.parent.parent / "logs" / "antii" / "trader.log"),
+        "log":   str(_ROOT / "logs" / "antii" / "trader.log"),
         "key":   "5",
         "group": "pipeline",
         "desc":  "Paper trader — opens positions, logs to trade.jsonl",
@@ -156,7 +157,7 @@ SCRIPTS = [
     {
         "name":  "shadow",
         "path":  os.path.join(_W, "shadow.py"),
-        "log":   str(_HERE.parent.parent / "logs" / "antii" / "shadow.log"),
+        "log":   str(_ROOT / "logs" / "antii" / "shadow.log"),
         "key":   "6",
         "group": "background",
         "desc":  "Shadow logger — 24h/48h/72h price checkpoints",
@@ -164,7 +165,7 @@ SCRIPTS = [
     {
         "name":  "monitor",
         "path":  os.path.join(_W, "monitor.py"),
-        "log":   str(_HERE.parent.parent / "logs" / "antii" / "monitor.log"),
+        "log":   str(_ROOT / "logs" / "antii" / "monitor.log"),
         "key":   "7",
         "group": "background",
         "desc":  "Position monitor — auto-resolves on Polymarket resolution",

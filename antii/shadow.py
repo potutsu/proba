@@ -29,13 +29,16 @@ from pathlib import Path
 import requests
 
 _HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(_HERE.parent.parent))
+# Support both standalone (~/proba/antii/) and nested (~/proba/proba/antii/) layouts
+_ROOT = _HERE.parent if (_HERE.parent / 'antii').exists() else _HERE.parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
-from proba.antii.paths import (
+from antii.paths import (
     ensure_dirs, append_log, log_error,
     get_paper_positions_path, LOGS,
 )
-from proba.antii.antii_config import (
+from antii.antii_config import (
     SHADOW_INTERVAL_SEC, SHADOW_CHECKPOINTS_H,
 )
 

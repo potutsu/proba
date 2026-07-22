@@ -30,15 +30,18 @@ from pathlib import Path
 
 # ── Path bootstrap ────────────────────────────────────────────────
 _HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(_HERE.parent.parent))
+# Support both standalone (~/proba/antii/) and nested (~/proba/proba/antii/) layouts
+_ROOT = _HERE.parent if (_HERE.parent / 'antii').exists() else _HERE.parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
-from proba.antii.antii_config import (
+from antii.antii_config import (
     SCRIPTS, STARTUP_DELAY_SEC, RESTART_COOLDOWN_SEC,
     MAX_RESTARTS, RESTART_RESET_SEC, ON_CRASH,
     REFRESH_SEC, LOG_LINES, LOG_VIEW_INIT,
     ALERT_BOT_TOKEN, ALERT_CHAT_ID, MODE,
 )
-from proba.antii.paths import ensure_dirs, get_paper_positions_path, LOGS
+from antii.paths import ensure_dirs, get_paper_positions_path, LOGS
 
 import requests
 
@@ -426,7 +429,8 @@ def draw(stdscr):
 
     def safe_add(row, col, text, attr=None):
         h, w = stdscr.getmaxyx()
-        if row < 0 or row >= h or col < 0:
+        # Hard clamp — never write to last 2 rows (footer + buffer)
+        if row < 0 or row >= h - 2 or col < 0:
             return
         text = text[:max(0, w - col - 1)].replace("\x00", "")
         try:
@@ -548,9 +552,9 @@ def draw(stdscr):
                 with manager_log_lock:
                     log_buf = list(manager_log)[-LOG_LINES:]
 
-            max_log = h - row - 2
+            max_log = h - row - 3
             for line in log_buf[-max(1, max_log):]:
-                if row < h - 2:
+                if row < h - 3:
                     safe_add(row, 0, (" " + line)[:w - 1], NORMAL); row += 1
 
             # ── Kill confirm overlay ───────────────────────────
@@ -560,11 +564,14 @@ def draw(stdscr):
                     kill_confirm = False
                 else:
                     msg = f" KILL ALL? Ctrl+K again to confirm ({int(5-elapsed)}s) "
-                    safe_add(h - 2, max(0, (w - len(msg)) // 2), msg[:w], RED)
+                    safe_add(h - 3, max(0, (w - len(msg)) // 2), msg[:w], RED)
 
             # ── Footer ─────────────────────────────────────────
             footer = "[#]view [r]restart [h]halt [C-A]start all [C-P]pause all [C-K]kill [q]quit"
-            safe_add(h - 1, 0, footer.center(w)[:w - 1], CYAN)
+            try:
+                stdscr.addstr(h - 1, 0, footer.center(w)[:w - 1], CYAN)
+            except curses.error:
+                pass
 
             stdscr.refresh()
 

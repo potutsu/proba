@@ -23,20 +23,23 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(_HERE.parent.parent))
+# Support both standalone (~/proba/antii/) and nested (~/proba/proba/antii/) layouts
+_ROOT = _HERE.parent if (_HERE.parent / 'antii').exists() else _HERE.parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
-from proba.antii.paths import (
+from antii.paths import (
     ensure_dirs, append_log, log_error,
     TailReader, load_seen, save_seen,
 )
-from proba.antii.antii_config import (
+from antii.antii_config import (
     DETECT_INTERVAL_SEC,
     TICKS_FOR_1H, TICKS_FOR_2H, TICKS_FOR_24H,
     SIGNAL_MIN_MOVE_1H, SIGNAL_MIN_MOVE_2H,
     SIGNAL_MIN_VOLUME, SIGNAL_MIN_LIQ,
     SIGNAL_MAX_YES_PRICE, MODE,
 )
-from proba.antii.base_rate import estimate_base_rate, price_gap
+from antii.base_rate import estimate_base_rate, price_gap
 
 _RUNNING = True
 

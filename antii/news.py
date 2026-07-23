@@ -31,12 +31,14 @@ _HERE = Path(__file__).resolve().parent
 _ROOT = _HERE.parent if (_HERE.parent / 'antii').exists() else _HERE.parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
+if str(_HERE) not in sys.path:
+    sys.path.insert(0, str(_HERE))
 
-from antii.paths import (
+from paths import (
     ensure_dirs, append_log, log_error,
     TailReader, load_seen, save_seen,
 )
-from antii.antii_config import MODE
+from antii_config import MODE
 
 import requests
 
@@ -305,6 +307,7 @@ def run():
                 enriched = _enrich(signal, adj_token, finnhub_token)
                 append_log("news", enriched)
                 seen.add(sid)
+                save_seen("news", seen)   # persist immediately — crash-safe
                 processed += 1
                 new_count += 1
 

@@ -266,6 +266,7 @@ def run():
                 scored = score_signal(enriched)
                 append_log("score", scored)
                 seen.add(sid)
+                save_seen("scorer", seen)
                 scored_total += 1
                 new_count    += 1
 

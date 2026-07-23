@@ -228,6 +228,7 @@ def run():
                 continue
 
             seen.add(sid)
+            save_seen("trader", seen)   # persist immediately
             new_count += 1
 
             market_id = str(scored.get("market_id", ""))

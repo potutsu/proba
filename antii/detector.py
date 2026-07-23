@@ -275,7 +275,23 @@ def _check_signal(mid: str, tick: dict, moves: dict, seen: set) -> dict | None:
 
 def run():
     ensure_dirs()
-    print(f"[{_ts()}] [detector] starting — interval={DETECT_INTERVAL_SEC}s", flush=True)
+
+    # ── Offset reset flag ─────────────────────────────────────────
+    # Pass --reset to reprocess all ticks from the beginning.
+    # Use after changing thresholds or noise filters.
+    reset = "--reset" in sys.argv
+    if reset:
+        from paths import OFFSET_DIR, SEEN_DIR
+        offset_file = OFFSET_DIR / "detector__tick.offset"
+        seen_file   = SEEN_DIR / "detector.seen"
+        if offset_file.exists():
+            offset_file.unlink()
+            print(f"[{_ts()}] [detector] reset: cleared tick offset", flush=True)
+        if seen_file.exists():
+            seen_file.unlink()
+            print(f"[{_ts()}] [detector] reset: cleared seen signals", flush=True)
+
+    print(f"[{_ts()}] [detector] starting — interval={DETECT_INTERVAL_SEC}s reset={reset}", flush=True)
 
     reader = TailReader("detector", "tick")
     seen   = load_seen("detector")

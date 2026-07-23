@@ -94,10 +94,13 @@ def format_uptime(start_ts: float) -> str:
     m = (sec % 3600) // 60
     return f"{h}h {m}m"
 
+_curses_active = False   # set True when curses starts, False when it exits
+
 def mlog(msg: str):
     with manager_log_lock:
         manager_log.append(f"{now_iso()} {msg}")
-    print(f"[manager] {msg}", flush=True)
+    if not _curses_active:
+        print(f"[manager] {msg}", flush=True)
 
 def send_alert(msg: str):
     if not ALERT_BOT_TOKEN or not ALERT_CHAT_ID:
@@ -400,7 +403,8 @@ def monitor_loop():
 # ── TUI ────────────────────────────────────────────────────────────
 
 def draw(stdscr):
-    global log_view_index, running
+    global log_view_index, running, _curses_active
+    _curses_active = True
 
     curses.curs_set(0)
     stdscr.nodelay(True)
@@ -707,6 +711,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        _curses_active = False
         running = False
         print("\nShutting down antii workers...")
         stop_all()

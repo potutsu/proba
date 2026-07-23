@@ -27,19 +27,21 @@ _HERE = Path(__file__).resolve().parent
 _ROOT = _HERE.parent if (_HERE.parent / 'antii').exists() else _HERE.parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
+if str(_HERE) not in sys.path:
+    sys.path.insert(0, str(_HERE))
 
-from antii.paths import (
+from paths import (
     ensure_dirs, append_log, log_error,
     TailReader, load_seen, save_seen,
 )
-from antii.antii_config import (
+from antii_config import (
     DETECT_INTERVAL_SEC,
     TICKS_FOR_1H, TICKS_FOR_2H, TICKS_FOR_24H,
     SIGNAL_MIN_MOVE_1H, SIGNAL_MIN_MOVE_2H,
     SIGNAL_MIN_VOLUME, SIGNAL_MIN_LIQ,
     SIGNAL_MAX_YES_PRICE, MODE,
 )
-from antii.base_rate import estimate_base_rate, price_gap
+from base_rate import estimate_base_rate, price_gap
 
 _RUNNING = True
 
@@ -84,98 +86,105 @@ def _ingest_tick(tick: dict):
     ))
 
 
-def _compute_moves(mid: str):
+def _compute_moves(mid: str) -> dict | None:
     """
-    Return (move_1h, move_2h, move_24h, price_now, price_1h, price_2h,
-            price_24h, vol_now, vol_spike_ratio) or None if not enough data.
+    Compute price moves from tick history.
+    Also uses Gamma's native change_24h field when available.
+    Returns move dict or None if not enough data.
     """
     hist = _price_history.get(mid)
-    if not hist or len(hist) < 2:
+    if not hist or len(hist) < 1:
         return None
 
-    hist_list = list(hist)  # oldest → newest
-    now_entry = hist_list[-1]
-    price_now = now_entry[1]
-    vol_now   = now_entry[2]
+    hist_list  = list(hist)
+    now_entry  = hist_list[-1]
+    price_now  = now_entry[1]
+    vol_now    = now_entry[2]
+    liq_now    = now_entry[3]
+    tick       = now_entry[4]
 
+    # Use Gamma's native 24h change if available (most reliable)
+    change_24h = tick.get("change_24h")
+
+    # Compute from history for 1h and 2h
     def _price_n_ago(n):
-        """Price n ticks ago, or None if not enough history."""
         idx = len(hist_list) - 1 - n
-        if idx < 0:
-            return None
-        return hist_list[idx][1]
-
-    def _vol_n_ago(n):
-        idx = len(hist_list) - 1 - n
-        if idx < 0:
-            return None
-        return hist_list[idx][2]
+        return hist_list[idx][1] if idx >= 0 else None
 
     price_1h  = _price_n_ago(TICKS_FOR_1H)
     price_2h  = _price_n_ago(TICKS_FOR_2H)
     price_24h = _price_n_ago(TICKS_FOR_24H)
-    vol_24h_ago = _vol_n_ago(TICKS_FOR_24H)
 
     move_1h  = round(price_now - price_1h,  4) if price_1h  is not None else None
     move_2h  = round(price_now - price_2h,  4) if price_2h  is not None else None
-    move_24h = round(price_now - price_24h, 4) if price_24h is not None else None
+    # Prefer Gamma native 24h change; fall back to computed
+    move_24h = round(float(change_24h), 4) if change_24h is not None else (
+               round(price_now - price_24h, 4) if price_24h is not None else None)
 
-    # Volume spike: ratio of current to 24h-ago volume
-    vol_spike = None
+    # Volume spike ratio
+    vol_24h_ago = _price_n_ago(TICKS_FOR_24H)
+    vol_spike   = None
     if vol_24h_ago and vol_24h_ago > 0:
-        vol_spike = round(vol_now / vol_24h_ago, 2)
+        vol_spike = round(vol_now / float(tick.get("volume", 1) or 1), 2)
 
     return {
-        "price_now":   round(price_now, 4),
-        "price_1h":    round(price_1h,  4) if price_1h  is not None else None,
-        "price_2h":    round(price_2h,  4) if price_2h  is not None else None,
-        "price_24h":   round(price_24h, 4) if price_24h is not None else None,
-        "move_1h":     move_1h,
-        "move_2h":     move_2h,
-        "move_24h":    move_24h,
-        "vol_now":     vol_now,
+        "price_now":       round(price_now, 4),
+        "price_1h":        round(price_1h,  4) if price_1h  is not None else None,
+        "price_2h":        round(price_2h,  4) if price_2h  is not None else None,
+        "price_24h":       round(price_24h, 4) if price_24h is not None else None,
+        "move_1h":         move_1h,
+        "move_2h":         move_2h,
+        "move_24h":        move_24h,
+        "vol_now":         vol_now,
         "vol_spike_ratio": vol_spike,
+        "best_bid":        tick.get("best_bid"),
+        "best_ask":        tick.get("best_ask"),
+        "spread":          tick.get("spread"),
+        "volume_24h":      float(tick.get("volume_24h", 0) or 0),
     }
 
 
 def _check_signal(mid: str, tick: dict, moves: dict, seen: set) -> dict | None:
     """
-    Given a market's current tick and move data, determine if a
-    signal should be emitted. Returns signal dict or None.
-    """
-    price_now = moves["price_now"]
-    move_1h   = moves["move_1h"]
-    move_2h   = moves["move_2h"]
-    vol_now   = moves["vol_now"]
-    liq       = float(tick.get("liquidity", 0))
+    Determine if a signal should be emitted for this market.
 
-    # ── Gate: upward move only (fading pumps, not crashes) ────────
-    best_move = max(
-        abs(move_1h)  if move_1h  is not None else 0,
-        abs(move_2h)  if move_2h  is not None else 0,
-    )
-    if best_move == 0:
+    Key change: move_24h from Gamma's oneDayPriceChange is always available
+    from first tick — we don't need N ticks of history to detect OR.
+    Signal fires if move_24h OR (move_1h/move_2h from accumulated history) passes threshold.
+    """
+    price_now  = moves["price_now"]
+    move_1h    = moves["move_1h"]
+    move_2h    = moves["move_2h"]
+    move_24h   = moves["move_24h"]
+    vol_now    = moves["vol_now"]
+    liq        = float(tick.get("liquidity", 0) or 0)
+
+    # ── Primary signal: Gamma native 24h change ────────────────────
+    # This works from tick 1, no history needed
+    primary_move = None
+    if move_24h is not None and abs(move_24h) >= SIGNAL_MIN_MOVE_2H:
+        primary_move = move_24h
+    elif move_1h is not None and abs(move_1h) >= SIGNAL_MIN_MOVE_1H:
+        primary_move = move_1h
+    elif move_2h is not None and abs(move_2h) >= SIGNAL_MIN_MOVE_2H:
+        primary_move = move_2h
+
+    if primary_move is None:
         return None
 
-    # Only fade upward moves (YES price pumped)
-    primary_move = move_1h if move_1h is not None else move_2h
+    # ── Only fade upward moves (YES price pumped) ──────────────────
     if primary_move <= 0:
         return None
 
-    # ── Gate: move threshold ───────────────────────────────────────
-    passes_1h = move_1h is not None and abs(move_1h) >= SIGNAL_MIN_MOVE_1H
-    passes_2h = move_2h is not None and abs(move_2h) >= SIGNAL_MIN_MOVE_2H
-    if not passes_1h and not passes_2h:
+    # ── YES price must be in fadeable range ───────────────────────
+    if price_now > SIGNAL_MAX_YES_PRICE:
         return None
 
-    # ── Gate: volume + liquidity ───────────────────────────────────
-    if vol_now < SIGNAL_MIN_VOLUME:
+    # ── Volume + liquidity gates ──────────────────────────────────
+    vol_24h = moves.get("volume_24h", 0) or vol_now
+    if vol_24h < SIGNAL_MIN_VOLUME and vol_now < SIGNAL_MIN_VOLUME:
         return None
     if liq < SIGNAL_MIN_LIQ:
-        return None
-
-    # ── Gate: YES price in fadeable range ─────────────────────────
-    if price_now > SIGNAL_MAX_YES_PRICE:
         return None
 
     # ── Base rate ─────────────────────────────────────────────────
@@ -188,52 +197,50 @@ def _check_signal(mid: str, tick: dict, moves: dict, seen: set) -> dict | None:
     if dedup_key in seen:
         return None
 
-    # ── Build signal ──────────────────────────────────────────────
     signal_id = str(uuid.uuid4())[:16]
 
     return {
-        # Identity
-        "signal_id":      signal_id,
-        "dedup_key":      dedup_key,
-        "ts":             _ts(),
-        "mode":           MODE,
+        "signal_id":       signal_id,
+        "dedup_key":       dedup_key,
+        "ts":              _ts(),
+        "mode":            MODE,
 
-        # Market
-        "market_id":      mid,
-        "yes_token_id":   tick.get("yes_token_id"),
-        "no_token_id":    tick.get("no_token_id"),
-        "title":          title,
-        "category":       tick.get("category", "unknown"),
-        "days_to_close":  tick.get("days_to_close", 0),
-        "end_date":       tick.get("end_date", ""),
+        "market_id":       mid,
+        "yes_token_id":    tick.get("yes_token_id"),
+        "no_token_id":     tick.get("no_token_id"),
+        "title":           title,
+        "event_title":     tick.get("event_title", ""),
+        "category":        tick.get("category", "unknown"),
+        "tag_slugs":       tick.get("tag_slugs", []),
+        "days_to_close":   tick.get("days_to_close", 0),
+        "end_date":        tick.get("end_date", ""),
 
-        # Prices
-        "price_now":      moves["price_now"],
-        "price_1h_ago":   moves["price_1h"],
-        "price_2h_ago":   moves["price_2h"],
-        "price_24h_ago":  moves["price_24h"],
+        "price_now":       moves["price_now"],
+        "price_1h_ago":    moves["price_1h"],
+        "price_2h_ago":    moves["price_2h"],
+        "price_24h_ago":   moves["price_24h"],
 
-        # Moves
-        "move_1h":        moves["move_1h"],
-        "move_2h":        moves["move_2h"],
-        "move_24h":       moves["move_24h"],
+        "move_1h":         move_1h,
+        "move_2h":         move_2h,
+        "move_24h":        move_24h,
+        "primary_move":    round(primary_move, 4),
 
-        # Volume
-        "volume":         vol_now,
-        "liquidity":      liq,
+        "best_bid":        moves.get("best_bid"),
+        "best_ask":        moves.get("best_ask"),
+        "spread":          moves.get("spread"),
+
+        "volume":          vol_now,
+        "volume_24h":      vol_24h,
+        "liquidity":       liq,
         "vol_spike_ratio": moves["vol_spike_ratio"],
 
-        # Base rate
-        "base_rate":      base_rate,
-        "base_rate_gap":  round(gap, 4) if gap is not None else None,
+        "base_rate":       base_rate,
+        "base_rate_gap":   round(gap, 4) if gap is not None else None,
 
-        # News context — filled by news.py
-        "news_headlines": [],
-        "news_context":   "",
-
-        # Trade flags — filled by trader.py
-        "traded":         False,
-        "skip_reason":    "",
+        "news_headlines":  [],
+        "news_context":    "",
+        "traded":          False,
+        "skip_reason":     "",
     }
 
 

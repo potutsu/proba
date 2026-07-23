@@ -26,13 +26,15 @@ _HERE = Path(__file__).resolve().parent
 _ROOT = _HERE.parent if (_HERE.parent / 'antii').exists() else _HERE.parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
+if str(_HERE) not in sys.path:
+    sys.path.insert(0, str(_HERE))
 
-from antii.paths import (
+from paths import (
     ensure_dirs, append_log, log_error,
     TailReader, load_seen, save_seen,
     get_paper_positions_path, LOGS,
 )
-from antii.antii_config import (
+from antii_config import (
     POSITION_SIZE_USD, MAX_OPEN_OR, COOLDOWN_MINUTES, MODE,
 )
 
@@ -140,7 +142,14 @@ def _open_position(scored: dict) -> dict:
         "move_1h":         scored.get("move_1h"),
         "move_2h":         scored.get("move_2h"),
         "move_24h":        scored.get("move_24h"),
+        "primary_move":    scored.get("primary_move"),
+        "best_bid":        scored.get("best_bid"),
+        "best_ask":        scored.get("best_ask"),
+        "spread":          scored.get("spread"),
+        "volume_24h":      scored.get("volume_24h"),
         "vol_spike_ratio": scored.get("vol_spike_ratio"),
+        "event_title":     scored.get("event_title", ""),
+        "tag_slugs":       scored.get("tag_slugs", []),
 
         # News
         "news_headlines":  scored.get("news_headlines", []),

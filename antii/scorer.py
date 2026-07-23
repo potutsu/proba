@@ -71,9 +71,9 @@ def _score_move(primary_move: float, move_24h: Optional[float]) -> int:
 
 
 def _score_gap(gap: Optional[float]) -> int:
-    """0-30 points for base rate gap. None = 10 (unknown but possible)."""
+    """0-30 points for base rate gap. None = 0 (no base rate = no gap score)."""
     if gap is None:
-        return 10   # no base rate match — partial credit
+        return 0   # no base rate match — rely on move + volume instead
     if gap >= 0.25: return 30
     if gap >= 0.20: return 25
     if gap >= 0.15: return 20
@@ -128,8 +128,11 @@ def _score_timing(days_to_close: float) -> int:
 
 
 def _conf_tier(total_score: int) -> str:
-    if total_score >= 70: return "high"
-    if total_score >= 45: return "medium"
+    # Thresholds account for no-news baseline (news=0 until tokens set)
+    # Max achievable without news: move(30)+gap(30)+vol(20)+timing(10)+spread(10) = 100
+    # Practical without news tokens: 25-50 range
+    if total_score >= 60: return "high"
+    if total_score >= 30: return "medium"
     return "low"
 
 

@@ -148,6 +148,22 @@ _BASE_RATES = [
     (["mars"],                              0.08),
     (["launch", "fail"],                    0.15),
 
+    # ── Airspace / closure ────────────────────────────────────────
+    (["airspace", "closure"],      0.12),
+    (["airspace", "close"],        0.12),
+    (["airspace", "closed"],       0.12),
+    (["airspace"],                  0.15),
+    (["no-fly"],                    0.10),
+    (["border", "close"],          0.15),
+    (["port", "close"],            0.20),
+
+    # ── Strike / attack ───────────────────────────────────────────
+    (["strike", "iran"],           0.12),
+    (["attack", "iran"],           0.10),
+    (["strike", "israel"],         0.12),
+    (["iran", "israel"],           0.15),
+    (["missile", "strike"],        0.10),
+
     # ── Geopolitical specific ──────────────────────────────────────
     (["taiwan", "invasion"],                0.04),
     (["taiwan", "war"],                     0.04),

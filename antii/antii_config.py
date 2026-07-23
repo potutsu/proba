@@ -36,8 +36,10 @@ BLOCKED_CATEGORIES = {
 # ─────────────────────────────────────────────────────────────────
 
 # Minimum absolute price move to flag as overreaction candidate
-SIGNAL_MIN_MOVE_1H  = 0.08   # focus: 0.08 / comprehensive: 0.06
-SIGNAL_MIN_MOVE_2H  = 0.12   # focus: 0.12 / comprehensive: 0.08
+# Calibrated from real Gamma data (2026-07-23): 92 upward moves in 1168 markets
+# 19 hit 0.05+, 14 hit 0.08+, 3 hit 0.12+ — threshold lowered to capture real signals
+SIGNAL_MIN_MOVE_1H  = 0.05   # was 0.08
+SIGNAL_MIN_MOVE_2H  = 0.06   # was 0.12 — too restrictive for real market data
 
 # Minimum volume on the market to consider signal real
 SIGNAL_MIN_VOLUME   = 5_000  # USD

@@ -43,6 +43,29 @@ from antii_config import (
 )
 from base_rate import estimate_base_rate, price_gap
 
+# ── Noise blocklist ────────────────────────────────────────────────
+# Markets that move mechanically, not from emotional overreaction.
+# OR signal is meaningless on these — price moves are predictable/scheduled.
+_NOISE_PATTERNS = [
+    "tweets",           # Elon/anyone tweet count buckets
+    "tweet",
+    "posts from",       # social media post count markets
+    "post 1", "post 2", "post 3",
+    "cs2 map",          # esports map-by-map
+    "map 1", "map 2", "map 3",
+    "set 1", "set 2", "set 3",   # tennis sets
+    "quarter 1", "quarter 2",      # sports quarters
+    "half 1", "half 2",
+    "inning",
+    "round 1", "round 2",
+    "hole ",            # golf holes
+    "lap ",             # racing laps
+]
+
+def _is_noise(title: str) -> bool:
+    t = title.lower()
+    return any(p in t for p in _NOISE_PATTERNS)
+
 _RUNNING = True
 
 def _handle_sig(sig, frame):
@@ -159,6 +182,11 @@ def _check_signal(mid: str, tick: dict, moves: dict, seen: set) -> dict | None:
     vol_now    = moves["vol_now"]
     liq        = float(tick.get("liquidity", 0) or 0)
 
+    # ── Gate: noise filter ────────────────────────────────────────
+    title = tick.get("title", "")
+    if _is_noise(title):
+        return None
+
     # ── Primary signal: Gamma native 24h change ────────────────────
     # This works from tick 1, no history needed
     primary_move = None
@@ -166,7 +194,7 @@ def _check_signal(mid: str, tick: dict, moves: dict, seen: set) -> dict | None:
         primary_move = move_24h
     elif move_1h is not None and abs(move_1h) >= SIGNAL_MIN_MOVE_1H:
         primary_move = move_1h
-    elif move_2h is not None and abs(move_2h) >= SIGNAL_MIN_MOVE_2H:
+    elif move_2h is not None and abs(move_2h) >= SIGNAL_MIN_MOVE_1H:
         primary_move = move_2h
 
     if primary_move is None:
@@ -188,7 +216,6 @@ def _check_signal(mid: str, tick: dict, moves: dict, seen: set) -> dict | None:
         return None
 
     # ── Base rate ─────────────────────────────────────────────────
-    title     = tick.get("title", "")
     base_rate = estimate_base_rate(title)
     gap       = price_gap(price_now, base_rate) if base_rate is not None else None
 
